@@ -1,0 +1,163 @@
+#Data visualization
+#---------------------------------------------------------------------------------------------
+#Step 1: Loading libraries needed for this competition.
+#---------------------------------------------------------------------------------------------
+#Data visualization
+library(tidyverse)
+library(corrplot)
+library(magrittr)
+library(zoo)
+library(RColorBrewer)
+library(gridExtra)
+library(MASS)
+#---------------------------------------------------------------------------------------------
+#Step 2: Loading the data
+#---------------------------------------------------------------------------------------------
+train_features <- read.csv("C:/Users/alice/Downloads/dengue_features_train.csv")
+train_labels <-  read.csv("C:/Users/alice/Downloads/dengue_labels_train.csv")
+
+#Since we are predicting by city, let's separate the data accordingly. 
+#This will help for our later visualizaions!
+
+#For San Juan, Puerto Rico
+sj_train_features <- train_features %>% filter(city == 'sj')
+sj_train_labels <- train_labels %>% filter(city == 'sj')
+
+#For Iquitos, Peru
+iq_train_features <- train_features %>% filter(city == 'iq')
+iq_train_labels <- train_labels %>% filter(city == 'iq')
+
+#---------------------------------------------------------------------------------------------
+#Step 3: Cleaning and seeing the shape of the data for data visualization
+#---------------------------------------------------------------------------------------------
+#Checking the datashape for each city.
+cat('\nSan Juan\n',
+    '\t features: ', sj_train_features %>% ncol, 
+    '\t entries: ' , sj_train_features %>% nrow,
+    '\t labels: '  , sj_train_labels %>% nrow)
+
+cat('\nIquitos\n',
+    '\t features: ', iq_train_features %>% ncol, 
+    '\t entries: ' , iq_train_features %>% nrow,
+    '\t labels: '  , iq_train_labels %>% nrow)
+
+
+#Checking head of data for SJ
+head(sj_train_features[1:10])
+
+#Now, checking for IQ.
+head(iq_train_features[1:10])
+
+#Let's check out missing values
+
+#Missing values for SJ
+rev(sort(colSums(sapply(sj_train_features, is.na))))
+
+#Missing values for IQ
+rev(sort(colSums(sapply(iq_train_features, is.na))))
+
+#We aren't going to able to do anything with our data sets or visualization if we have missing data. 
+#I think the best way to approach this is to replace the missing values with the previous value. 
+#This is the most simple way.
+
+#Wow, we can see there are so many climate variables. I'm going to drop some columns I don't feel I need.
+#I am only interested in looking at the climate variables.
+sj_train_features %<>% dplyr::select(-week_start_date)
+iq_train_features %<>% dplyr::select(-week_start_date)
+
+#For SJ
+sj_train_features <- sj_train_features %>%
+  do(na.locf(.))
+
+#For IQ
+iq_train_features <- iq_train_features %>%
+  do(na.locf(.))
+
+#Add total cases to our train dataset
+sj_train_features %<>% mutate('total_cases' = sj_train_labels$total_cases)
+iq_train_features %<>% mutate('total_cases' = iq_train_labels$total_cases)
+#---------------------------------------------------------------------------------------------
+#Step 4: Data Visualization
+#---------------------------------------------------------------------------------------------
+#Let's check the mean and variance of the labels and see how it is distributed.
+
+#SJ
+print(mean(sj_train_labels$total_cases))
+print(var(sj_train_labels$total_cases))
+
+#IQ
+print(mean(iq_train_labels$total_cases))
+print(var(iq_train_labels$total_cases))
+
+#Time to graph this out!
+#San Juan
+ggplot(sj_train_labels, aes(x = total_cases, fill= ..count..)) +
+  theme_bw() +
+  ggtitle('Dengue Cases in San Juan') +
+  geom_histogram(bins = 12, colour = "dark blue") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+#IQ
+ggplot(iq_train_labels, aes(x = total_cases, fill= ..count..)) +
+  theme_bw() +
+  ggtitle('Dengue Cases in Iquitos') +
+  geom_histogram(bins = 12, colour = "dark blue") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+#---------------------------------------------------------------------------------------------
+#Next, let's create a correlation matrix to find the correlations between features.
+
+#We want to add add total cases to our features, so we can find the correlation. 
+#We can do this by using the mutate function.
+sj_train_features %<>% mutate('total_cases' = sj_train_labels$total_cases)
+iq_train_features %<>% mutate('total_cases' = iq_train_labels$total_cases)
+
+view(sj_train_features)
+
+#Creating a correlation data frame so we can see the correlation plot for each city.
+#Taking away city, year, weekofyear since we're only interested in examining the correlation with temp variables etc;
+
+#San Juan
+sj_matrix <- sj_train_features %>% 
+              dplyr::select(-city, -year, -weekofyear) %>%
+              cor(use = 'pairwise.complete.obs') 
+
+#Using type = "lower" because you can see correlation between each pair of variables so it won't repeat.
+#SJ correlation plot
+#May have to use plot.new() function for this part to work!
+corrplot(sj_matrix, type = "lower", method="color",
+         col=brewer.pal(n=8, name = "PuRd"),diag=FALSE)
+
+#Iquitos
+iq_matrix <- iq_train_features %>% 
+              dplyr::select(-city, -year, -weekofyear) %>%
+              cor(use = 'pairwise.complete.obs') 
+
+#Correlation plot for IQ
+corrplot(iq_matrix, type="lower", method="color",
+         col=brewer.pal(n=8, name="PuRd"),diag=FALSE)
+
+
+#Barplot correlations to examine relationships more closely
+
+#SJ first
+#Using sort() shows it correlation in ascending order by default
+sj_corr <- sort(sj_matrix[21,-21]) %>%  
+  as.data.frame %>% 
+  `names<-`('correlation') %>%
+  ggplot(aes(x = reorder(row.names(.), -correlation), y = correlation, fill = correlation)) + 
+  geom_bar(stat='identity', colour = 'black') + scale_fill_continuous(guide = FALSE) +
+  labs(title = 'San Jose', x = NULL, y = NULL) + coord_flip() 
+
+
+#Doing the same exact thing for IQ
+iq_corr <- sort(iq_matrix[21,-21]) %>%  
+  as.data.frame %>% 
+  `names<-`('correlation') %>%
+  ggplot(aes(x = reorder(row.names(.), -correlation), y = correlation, fill = correlation)) + 
+  geom_bar(stat='identity', colour = 'black') + scale_fill_continuous(guide = FALSE) +
+  labs(title = 'Iquitos', x = NULL, y = NULL) + coord_flip()
+
+#Comparison between the correlation of variables for both.
+grid.arrange(sj_corr, iq_corr)
