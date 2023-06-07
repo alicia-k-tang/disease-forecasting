@@ -1,0 +1,276 @@
+#Creating the models and final submission
+#---------------------------------------------------------------------------------------------
+#Step 1: Loading libraries needed for this competition.
+#---------------------------------------------------------------------------------------------
+#Data visualization
+library(fpp3)
+library(forecast)
+library(lubridate)
+library(tseries)
+library(data.table)
+library(magrittr)
+library(tidyverse)
+library(corrplot)
+library(zoo)
+library(gridExtra)
+library(MASS)
+#---------------------------------------------------------------------------------------------
+#Step 2: Loading the data
+#---------------------------------------------------------------------------------------------
+train_features <- read.csv("C:/Users/alice/Downloads/dengue_features_train.csv")
+train_labels <-  read.csv("C:/Users/alice/Downloads/dengue_labels_train.csv")
+
+#Since we are predicting by city, let's separate the data accordingly. 
+
+#For San Juan, Puerto Rico
+sj_train_features <- train_features %>% filter(city == 'sj')
+sj_train_labels <- train_labels %>% filter(city == 'sj')
+
+#For Iquitos, Peru
+iq_train_features <- train_features %>% filter(city == 'iq')
+iq_train_labels <- train_labels %>% filter(city == 'iq')
+
+#---------------------------------------------------------------------------------------------
+#Step 3: Data Cleaning 
+#---------------------------------------------------------------------------------------------
+#Wow, we can see there are so many climate variables. I'm going to drop some columns I don't feel I need.
+#I am only interested in looking at the climate variables.
+sj_train_features %<>% dplyr::select(-week_start_date)
+iq_train_features %<>% dplyr::select(-week_start_date)
+
+#Replace missing Values for SJ
+sj_train_features <- sj_train_features %>%
+  do(na.locf(.))
+
+#Replace missing values for IQ
+iq_train_features <- iq_train_features %>%
+  do(na.locf(.))
+
+#Add total cases to our train dataset
+sj_train_features %<>% mutate('total_cases' = sj_train_labels$total_cases)
+iq_train_features %<>% mutate('total_cases' = iq_train_labels$total_cases)
+
+#---------------------------------------------------------------------------------------------
+#Step 4: Splitting into Training and Testing Datasets
+#---------------------------------------------------------------------------------------------
+#Converting into time series object first.
+#Frequency is 52 since 52 weeks in a year and the data is weekly by year.
+#Same process will be done for SJ and IQ.
+#San Juan first!
+ts_sj <- tsclean(ts(sj_train_features$total_cases, start=c(1990,18), end=c(2008,17), frequency = 52))
+
+#Splitting our training and testing dataset for San Juan.
+
+#I chose to only look at predicting 17 weeks, since the last full year that was given was 2007. 
+#For simplicity, I wanted to only predict the remaining weeks after the last full year of data in 2007.
+train_sj <- tsclean(window(ts_sj, end=c(2007,52)))
+test_sj <- tsclean(window(ts_sj, start=c(2008,1)))
+
+#---------------------------------------------------------------------------------------------
+#Now the same process for Iquitos.
+
+#Converting into a time series object for Iquitos.
+ts_iq <- tsclean(ts(iq_train_features$total_cases, start=c(2000,26), end=c(2010,25), frequency = 52))
+
+#Once again, I only wanted to predict the remaining weeks after the last full year of data in 2009.
+train_iq <- tsclean(window(ts_iq, end=c(2009,52)))
+test_iq <- tsclean(window(ts_iq, start=c(2010,1)))
+#---------------------------------------------------------------------------------------------
+#Step 5: San Juan Models
+#---------------------------------------------------------------------------------------------
+#First we'll examine the ARIMA model and how well it performs.
+
+#Creating the ARIMA model.
+sj_arima <- auto.arima(train_sj)
+summary(sj_arima)
+
+#Checking residuals.
+checkresiduals(sj_arima)
+
+#Forecasting the model.
+#h=17 is predicting the 2008 to 2008 week 17, we're predicting the next 17 weeks here and for the following SJ models.
+sj_arima_fc <- forecast(sj_arima, h=17)
+
+#Plotting the forecast.
+autoplot(sj_arima_fc)+autolayer(ts_sj)
+
+#Examining the accuracy.
+sj.arima.acc <- accuracy(sj_arima_fc, test_sj)
+sj.arima.acc
+
+#---------------------------------------------------------------------------------------------
+#Next, let's see how well the ETS model performs.
+
+#Creating the ETS model.
+sj_ets <- ets(train_sj)
+summary(sj_ets)
+
+#Checking residuals.
+checkresiduals(sj_ets)
+
+#Forecasting the model
+sj_ets_fc <- forecast(sj_ets, h=17)
+
+#Plotting the forecast.
+autoplot(sj_ets_fc) + autolayer(ts_sj)
+
+#Examining the accuracy.
+sj.ets.acc <- accuracy(sj_ets_fc, test_sj)
+sj.ets.acc
+
+#---------------------------------------------------------------------------------------------
+#Let's look at the possibility of a Neural Network model and see how it performs.
+sj_nn <- nnetar(train_sj)
+summary(sj_nn)
+
+#Checking residuals
+checkresiduals(sj_nn)
+
+#Forecasting.
+nn_sj_fc <- forecast(sj_nn, h=17)
+
+#Plotting the forecast.
+autoplot(nn_sj_fc)+autolayer(ts_sj)
+
+#Examining the accuracy.
+sj.nn.acc <- accuracy(nn_sj_fc, test_sj)
+sj.nn.acc
+
+#---------------------------------------------------------------------------------------------
+#Lastly, I'm interested in looking at a linear regression model.
+
+#Using BoxCox to find the best lambda for our model, which will generate the best results for us.
+sj.lambda <- BoxCox.lambda(train_sj)
+
+#Creating our linear regression model, making sure to include season and trend.
+sj_lm <- tslm(train_sj ~ season + trend, lambda = sj.lambda)
+summary(sj_lm)
+
+#Checking residuals
+checkresiduals(sj_lm)
+
+#Forecasting the lm model.
+sj_lm_fc <- forecast(sj_lm, h=17)
+
+#Plotting the forecast.
+autoplot(sj_lm_fc)+autolayer(ts_sj)
+
+#Examining the accuracy.
+sj.lm.acc <- accuracy(sj_lm_fc, test_sj)
+sj.lm.acc
+
+#---------------------------------------------------------------------------------------------
+#Step 5:  Iquitos Models
+#---------------------------------------------------------------------------------------------
+#First, let's look at the ARIMA model.
+iq_arima <- auto.arima(train_iq)
+summary(iq_arima)
+
+#Checking residuals.
+checkresiduals(iq_arima)
+
+#Forecasting the ARIMA model.
+iq_arima_fc <- forecast(iq_arima, h=25)
+
+#Plotting the forecast.
+autoplot(iq_arima_fc)+autolayer(ts_iq)
+
+#Examining the accuracy.
+iq.arima.acc <- accuracy(iq_arima_fc, test_iq)
+iq.arima.acc 
+#---------------------------------------------------------------------------------------------
+#Now looking at the ETS model.
+#Creating the model.
+iq_ets <- ets(train_iq)
+summary(iq_ets)
+
+#Checking the residuals.
+checkresiduals(iq_ets)
+
+#Forecasting the ETS model
+iq_ets_fc <- forecast(iq_ets, h=25)
+
+#Plotting the forecast
+autoplot(iq_ets_fc) + autolayer(ts_iq)
+
+#Examining the accuracy.
+iq.ets.acc <- accuracy(iq_ets_fc, test_iq)
+iq.ets.acc
+
+#---------------------------------------------------------------------------------------------
+#Let's examine a Neural Network model.
+iq_nn <- nnetar(train_iq)
+summary(iq_nn)
+
+#Checking residuals
+checkresiduals(iq_nn)
+
+#Forecasting.
+nn_iq_fc <- forecast(iq_nn, h=25)
+
+#Plotting the forecast 
+autoplot(nn_iq_fc)+autolayer(ts_iq)
+
+#Examining the accuracy.
+iq.nn.acc <- accuracy(nn_iq_fc, test_iq)
+iq.nn.acc
+
+#---------------------------------------------------------------------------------------------
+#Lastly, we'll see the linear regression model.
+#Finding the best lambda.
+iq.lambda <- BoxCox.lambda(train_iq)
+
+#Creating the model
+iq_lm <- tslm(train_iq ~ season + trend, lambda = iq.lambda)
+summary(iq_lm)
+
+#Checking residuals
+checkresiduals(iq_lm)
+
+#Forecasting
+iq_lm_fc <- forecast(iq_lm, h=25)
+
+#Plotting the forecast.
+autoplot(iq_lm_fc)+autolayer(ts_iq)
+
+#Examining the accuracy.
+iq.lm.acc <- accuracy(iq_lm_fc, test_iq)
+iq.lm.acc
+
+#---------------------------------------------------------------------------------------------
+#Step 6: Picking the best model!
+#---------------------------------------------------------------------------------------------
+#San Jose for linear regression
+#Using submission format, h = 260 for SJ and h = 156 for iq
+sub_sj <- tslm(ts_sj ~ season + trend)
+submission_sj_fc <- forecast(sub_sj, h= 260)
+
+autoplot(submission_sj_fc)
+
+#Iquitos for linear regression
+sub_iq <- tslm(ts_iq ~ season + trend)
+submission_iq_fc <- forecast(sub_iq, h= 156)
+
+autoplot(submission_iq_fc)
+
+#---------------------------------------------------------------------------------------------
+#Step 7: Submitting our results into the competition.
+#---------------------------------------------------------------------------------------------
+#Creating dataframe for SJ submission
+sj_submission <- as.data.frame(submission_sj_fc$mean)
+sj_submission$x[sj_sub$x<0] <- 0
+
+#Creating dataframe for IQ submission
+iq_submission <- as.data.frame(submission_iq_fc$mean)
+iq_submission$x[iq_sub$x<0] <- 0
+
+#Binding both dataframes together to form the final dataset.
+submission_cases <-bind_rows(sj_sub, iq_sub)
+view(submission_cases)
+
+#Creating the submission file.
+submission <- read.csv("C:/Users/alice/Downloads/submission_format.csv")
+submission$total_cases <- round(submission_cases$x,0)
+
+view(submission)
+write.csv(submission, "final_submission2.csv", row.names = FALSE)
